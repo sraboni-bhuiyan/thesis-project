@@ -1,3 +1,3 @@
-MODEL_NAME = "gpt-4o"
-TEMPERATURE = 0
+MODEL_NAME = "openai/gpt-4o-mini"
+TEMPERATURE = 0.0
 TOP_K = 5
