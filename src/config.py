@@ -1,3 +1,3 @@
-MODEL_NAME = "openai/gpt-4o-mini"
+MODEL_NAME = "openrouter/free"
 TEMPERATURE = 0.0
 TOP_K = 5

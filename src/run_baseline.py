@@ -1,9 +1,9 @@
 import csv
 import json
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+import os
 import openai
 
 from config import MODEL_NAME, TEMPERATURE
@@ -18,17 +18,16 @@ PROMPT_FILE = PROJECT_ROOT / "src" / "prompts" / "baseline.txt"
 RESULTS_DIR = PROJECT_ROOT / "results"
 RESULTS_FILE = RESULTS_DIR / "baseline_predictions.csv"
 
-
 def load_api_key():
-    load_dotenv()  # loads .env if present
+    load_dotenv()
     api_key = os.getenv("OPENROUTER_API_KEY")
-    base_url = os.getenv("OPENROUTER_BASE_URL", OPENROUTER_DEFAULT_BASE)
+    base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
     if not api_key:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY not set. Add it to your environment or a .env file."
-        )
+        raise RuntimeError("OPENROUTER_API_KEY not set in .env")
+
     openai.api_key = api_key
-    openai.base_url = base_url
+    openai.api_base = base_url
 
 def load_baseline_template() -> str:
     """
@@ -67,25 +66,49 @@ def build_case_prompt(template: str, case: dict) -> str:
 
 
 def call_model(prompt: str) -> str:
-    """
-    Call the OpenAI chat completion API with deterministic settings.
-    Returns the raw text content of the model response.
-    """
     response = openai.ChatCompletion.create(
         model=MODEL_NAME,
         temperature=TEMPERATURE,
         messages=[
-            {
-                "role": "system",
-                "content": "You are a careful clinical triage assistant.",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
+            {"role": "system", "content": "You are a careful clinical triage assistant."},
+            {"role": "user", "content": prompt},
         ],
     )
-    return response.choices[0].message["content"].strip()
+
+    if hasattr(response, "to_dict"):
+        response = response.to_dict()
+
+    if isinstance(response, dict):
+        choices = response.get("choices")
+    else:
+        choices = getattr(response, "choices", None)
+
+    if not choices:
+        raise RuntimeError(f"Model returned no choices. Response: {response}")
+
+    choice = choices[0]
+    content = None
+
+    if isinstance(choice, dict):
+        if "message" in choice and choice["message"] is not None:
+            msg = choice["message"]
+            if isinstance(msg, dict) and "content" in msg and msg["content"] is not None:
+                content = msg["content"]
+        if content is None and "text" in choice and choice["text"] is not None:
+            content = choice["text"]
+    else:
+        msg = getattr(choice, "message", None)
+        if isinstance(msg, dict) and "content" in msg and msg["content"] is not None:
+            content = msg["content"]
+        elif msg is not None and hasattr(msg, "content"):
+            content = msg.content
+        if content is None and hasattr(choice, "text"):
+            content = choice.text
+
+    if not content:
+        raise RuntimeError(f"Model returned no content. Choice object: {choice}")
+
+    return str(content).strip()
 
 
 def extract_json_block(text: str) -> str:
