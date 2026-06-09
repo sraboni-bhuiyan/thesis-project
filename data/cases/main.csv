@@ -1,0 +1,21 @@
+case_id,symptoms,vitals,age,gender,reference_urgency,reference_specialty
+1,chest pain and shortness of breath,bp 150/90 hr 110 spo2 92,68,female,orange,cardiology
+2,mild sore throat and runny nose,temp 37.2 hr 78,24,male,green,general practice
+3,sudden weakness on one side and slurred speech,bp 170/95 hr 96,79,female,red,neurology
+4,"ankle sprain after fall, can walk",bp 128/84 hr 82,31,male,blue,orthopedics
+5,severe abdominal pain with vomiting,bp 100/60 hr 118 temp 38.5,44,female,orange,surgery
+6,headache and nausea after minor head hit,bp 122/76 hr 88,19,male,yellow,neurology
+7,fever and cough for 3 days,temp 38.1 hr 90 spo2 97,56,female,yellow,internal medicine
+8,brief nosebleed stopped now,bp 124/80 hr 74,13,female,blue,ent
+9,allergic rash but breathing normal,bp 118/78 hr 84,27,male,yellow,dermatology
+10,"collapse at home, now drowsy",bp 90/58 hr 124 spo2 90,83,male,red,emergency medicine
+11,back pain without trauma,bp 130/85 hr 76,36,female,green,orthopedics
+12,wrist pain after lifting heavy object,bp 126/82 hr 80,41,male,blue,orthopedics
+13,vomiting and dehydration after diarrhea,bp 96/62 hr 112,22,female,orange,gastroenterology
+14,ear pain and mild fever,temp 37.9 hr 83,8,male,yellow,ent
+15,pregnant with mild cramps no bleeding,bp 110/70 hr 90,29,female,yellow,obstetrics
+16,severe eye pain and blurred vision,bp 120/76 hr 88,54,male,orange,ophthalmology
+17,panic attack and chest tightness,bp 132/86 hr 102,33,female,yellow,psychiatry
+18,cut on finger bleeding stopped,bp 124/79 hr 72,20,male,blue,surgery
+19,high fever and stiff neck,temp 39.2 hr 116,47,female,red,infectious disease
+20,persistent vomiting and severe weakness,bp 88/54 hr 126,61,male,orange,internal medicine

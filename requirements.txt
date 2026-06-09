@@ -1,0 +1,13 @@
+# Minimal development dependencies (adjust versions as needed)
+numpy
+pandas
+scikit-learn
+sentence-transformers
+transformers
+openai
+chromadb
+faiss-cpu
+jupyter
+notebook
+python-dotenv
+pypdf
