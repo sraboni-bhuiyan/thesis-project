@@ -7,4 +7,7 @@ __pycache__/
 
 results/
 data/indexes/
+data/cases/
+data/fairness_variants/
 data/guidelines_raw/
+THESIS_PROJECT_PLAN.md
