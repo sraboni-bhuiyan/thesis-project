@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 import os
-import openai
+from openai import OpenAI
 
 from config import MODEL_NAME, TEMPERATURE
 
@@ -18,6 +18,7 @@ PROMPT_FILE = PROJECT_ROOT / "src" / "prompts" / "baseline.txt"
 RESULTS_DIR = PROJECT_ROOT / "results"
 RESULTS_FILE = RESULTS_DIR / "baseline_predictions.csv"
 
+
 def load_api_key():
     load_dotenv()
     api_key = os.getenv("OPENROUTER_API_KEY")
@@ -26,8 +27,13 @@ def load_api_key():
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY not set in .env")
 
-    openai.api_key = api_key
-    openai.api_base = base_url
+    # Create OpenAI client for OpenRouter
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+    )
+    return client
+
 
 def load_baseline_template() -> str:
     """
@@ -50,13 +56,20 @@ def read_cases():
 def build_case_prompt(template: str, case: dict) -> str:
     """
     Build the prompt for one case by combining the template with case details.
+    Handles None values in CSV fields.
     """
+    # Safely get values, defaulting to empty string if None or missing
+    symptoms = (case.get('symptoms') or '').strip()
+    vitals = (case.get('vitals') or '').strip()
+    age = (case.get('age') or '').strip()
+    gender = (case.get('gender') or '').strip()
+
     case_block = (
         "Patient case:\n"
-        f"- Symptoms: {case.get('symptoms', '').strip()}\n"
-        f"- Vitals: {case.get('vitals', '').strip()}\n"
-        f"- Age: {case.get('age', '').strip()}\n"
-        f"- Gender: {case.get('gender', '').strip()}\n"
+        f"- Symptoms: {symptoms}\n"
+        f"- Vitals: {vitals}\n"
+        f"- Age: {age}\n"
+        f"- Gender: {gender}\n"
         "\n"
         "Return STRICT JSON with exactly these keys:\n"
         '  {"urgency": "...", "specialty": "...", "rationale": "..."}\n'
@@ -65,8 +78,8 @@ def build_case_prompt(template: str, case: dict) -> str:
     return template + "\n\n" + case_block
 
 
-def call_model(prompt: str) -> str:
-    response = openai.ChatCompletion.create(
+def call_model(client: OpenAI, prompt: str) -> str:
+    response = client.chat.completions.create(
         model=MODEL_NAME,
         temperature=TEMPERATURE,
         messages=[
@@ -75,40 +88,15 @@ def call_model(prompt: str) -> str:
         ],
     )
 
-    if hasattr(response, "to_dict"):
-        response = response.to_dict()
-
-    if isinstance(response, dict):
-        choices = response.get("choices")
-    else:
-        choices = getattr(response, "choices", None)
-
-    if not choices:
+    # Extract content from response
+    if not response.choices:
         raise RuntimeError(f"Model returned no choices. Response: {response}")
 
-    choice = choices[0]
-    content = None
+    choice = response.choices[0]
+    if not choice.message or not choice.message.content:
+        raise RuntimeError(f"Model returned no content. Choice: {choice}")
 
-    if isinstance(choice, dict):
-        if "message" in choice and choice["message"] is not None:
-            msg = choice["message"]
-            if isinstance(msg, dict) and "content" in msg and msg["content"] is not None:
-                content = msg["content"]
-        if content is None and "text" in choice and choice["text"] is not None:
-            content = choice["text"]
-    else:
-        msg = getattr(choice, "message", None)
-        if isinstance(msg, dict) and "content" in msg and msg["content"] is not None:
-            content = msg["content"]
-        elif msg is not None and hasattr(msg, "content"):
-            content = msg.content
-        if content is None and hasattr(choice, "text"):
-            content = choice.text
-
-    if not content:
-        raise RuntimeError(f"Model returned no content. Choice object: {choice}")
-
-    return str(content).strip()
+    return choice.message.content.strip()
 
 
 def extract_json_block(text: str) -> str:
@@ -150,7 +138,7 @@ def parse_model_output(text: str):
 
 
 def run_baseline():
-    load_api_key()
+    client = load_api_key()
     template = load_baseline_template()
     cases = read_cases()
 
@@ -174,23 +162,41 @@ def run_baseline():
 
         for case in cases:
             case_id = case.get("case_id")
-            prompt = build_case_prompt(template, case)
-            model_text = call_model(prompt)
-            urgency, specialty, rationale = parse_model_output(model_text)
+            try:
+                prompt = build_case_prompt(template, case)
+                model_text = call_model(client, prompt)
+                urgency, specialty, rationale = parse_model_output(model_text)
 
-            writer.writerow(
-                {
-                    "case_id": case_id,
-                    "input_symptoms": case.get("symptoms", ""),
-                    "input_vitals": case.get("vitals", ""),
-                    "input_age": case.get("age", ""),
-                    "input_gender": case.get("gender", ""),
-                    "pred_urgency": urgency,
-                    "pred_specialty": specialty,
-                    "pred_rationale": rationale,
-                    "raw_model_output": model_text,
-                }
-            )
+                writer.writerow(
+                    {
+                        "case_id": case_id,
+                        "input_symptoms": case.get("symptoms", ""),
+                        "input_vitals": case.get("vitals", ""),
+                        "input_age": case.get("age", ""),
+                        "input_gender": case.get("gender", ""),
+                        "pred_urgency": urgency,
+                        "pred_specialty": specialty,
+                        "pred_rationale": rationale,
+                        "raw_model_output": model_text,
+                    }
+                )
+            except Exception as e:
+                # Log error but continue processing other cases
+                print(f"Error processing case {case_id}: {e}")
+                # Write error row
+                writer.writerow(
+                    {
+                        "case_id": case_id,
+                        "input_symptoms": case.get("symptoms", ""),
+                        "input_vitals": case.get("vitals", ""),
+                        "input_age": case.get("age", ""),
+                        "input_gender": case.get("gender", ""),
+                        "pred_urgency": "ERROR",
+                        "pred_specialty": "ERROR",
+                        "pred_rationale": str(e),
+                        "raw_model_output": "",
+                    }
+                )
 
     print(f"Baseline predictions written to {RESULTS_FILE}")
 
