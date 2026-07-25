@@ -52,7 +52,7 @@ def main():
 
         # urgency evaluation
         pred_u = row["pred_urgency"].strip().lower()
-        ref_u = ref["reference_urgency"].strip().lower()
+        ref_u = ref["ground_truth_urgency"].strip().lower()
         cat = compare_urgency(pred_u, ref_u)
         if cat == "correct":
             urg_correct += 1
@@ -65,7 +65,7 @@ def main():
 
         # specialty evaluation (simple exact match for now)
         pred_s = row["pred_specialty"].strip().lower()
-        ref_s = ref["reference_specialty"].strip().lower()
+        ref_s = ref["ground_truth_specialty"].strip().lower()
         if pred_s == ref_s:
             spec_correct += 1
 

@@ -4,7 +4,14 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 import os
-from openai import OpenAI
+
+# Handle both old and new openai versions
+try:
+    from openai import OpenAI
+    _has_new_openai = True
+except ImportError:
+    import openai
+    _has_new_openai = False
 
 from config import MODEL_NAME, TEMPERATURE
 
@@ -27,12 +34,18 @@ def load_api_key():
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY not set in .env")
 
-    # Create OpenAI client for OpenRouter
-    client = OpenAI(
-        api_key=api_key,
-        base_url=base_url,
-    )
-    return client
+    if _has_new_openai:
+        # New openai v1.0+ client
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
+        return client
+    else:
+        # Old openai <1.0
+        openai.api_key = api_key
+        openai.api_base = base_url
+        return None  # We'll use the module directly
 
 
 def load_baseline_template() -> str:
@@ -78,25 +91,49 @@ def build_case_prompt(template: str, case: dict) -> str:
     return template + "\n\n" + case_block
 
 
-def call_model(client: OpenAI, prompt: str) -> str:
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        temperature=TEMPERATURE,
-        messages=[
-            {"role": "system", "content": "You are a careful clinical triage assistant."},
-            {"role": "user", "content": prompt},
-        ],
-    )
+def call_model(client_or_none, prompt: str) -> str:
+    """
+    Call the LLM API, handling both old and new openai versions.
+    """
+    if _has_new_openai:
+        client = client_or_none
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            temperature=TEMPERATURE,
+            messages=[
+                {"role": "system", "content": "You are a careful clinical triage assistant."},
+                {"role": "user", "content": prompt},
+            ],
+        )
 
-    # Extract content from response
-    if not response.choices:
-        raise RuntimeError(f"Model returned no choices. Response: {response}")
+        # Extract content from response
+        if not response.choices:
+            raise RuntimeError(f"Model returned no choices. Response: {response}")
 
-    choice = response.choices[0]
-    if not choice.message or not choice.message.content:
-        raise RuntimeError(f"Model returned no content. Choice: {choice}")
+        choice = response.choices[0]
+        if not choice.message or not choice.message.content:
+            raise RuntimeError(f"Model returned no content. Choice: {choice}")
 
-    return choice.message.content.strip()
+        return choice.message.content.strip()
+    else:
+        # Old openai API
+        response = openai.ChatCompletion.create(
+            model=MODEL_NAME,
+            temperature=TEMPERATURE,
+            messages=[
+                {"role": "system", "content": "You are a careful clinical triage assistant."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+
+        if not response['choices']:
+            raise RuntimeError(f"Model returned no choices. Response: {response}")
+
+        choice = response['choices'][0]
+        if not choice['message'] or not choice['message']['content']:
+            raise RuntimeError(f"Model returned no content. Choice: {choice}")
+
+        return choice['message']['content'].strip()
 
 
 def extract_json_block(text: str) -> str:
