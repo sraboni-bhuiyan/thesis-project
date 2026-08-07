@@ -1,10 +1,11 @@
+import argparse
 import csv
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CASES_FILE = PROJECT_ROOT / "data" / "cases" / "main.csv"
-BASELINE_FILE = PROJECT_ROOT / "results" / "baseline_predictions.csv"
-
+# Default prediction file – can be overridden with --pred-file
+DEFAULT_BASELINE_FILE = PROJECT_ROOT / "results" / "baseline_predictions.csv"
 
 URGENCY_ORDER = ["blue", "green", "yellow", "orange", "red"]
 URGENCY_INDEX = {u: i for i, u in enumerate(URGENCY_ORDER)}
@@ -15,8 +16,8 @@ def load_cases():
         return {row["case_id"]: row for row in csv.DictReader(f)}
 
 
-def load_predictions():
-    with open(BASELINE_FILE, "r", encoding="utf-8") as f:
+def load_predictions(pred_file: Path):
+    with open(pred_file, "r", encoding="utf-8") as f:
         return list(csv.DictReader(f))
 
 
@@ -29,14 +30,14 @@ def compare_urgency(pred, ref):
     if p == r:
         return "correct"
     elif p > r:
-        return "over"   # more severe than reference
+        return "over"      # more severe than reference
     else:
-        return "under"  # less severe than reference
+        return "under"     # less severe than reference
 
 
-def main():
+def main(pred_file: Path):
     cases = load_cases()
-    preds = load_predictions()
+    preds = load_predictions(pred_file)
 
     total = 0
     urg_correct = urg_over = urg_under = urg_invalid = 0
@@ -69,6 +70,7 @@ def main():
         if pred_s == ref_s:
             spec_correct += 1
 
+    print(f"Evaluated predictions from: {pred_file}")
     print(f"Total cases evaluated: {total}")
     if total > 0:
         print(f"Urgency accuracy: {urg_correct/total:.2%}")
@@ -79,4 +81,15 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Evaluate triage predictions (baseline, RAG, or any custom file)."
+    )
+    parser.add_argument(
+        "-p",
+        "--pred-file",
+        type=Path,
+        default=DEFAULT_BASELINE_FILE,
+        help=f"Path to prediction CSV to evaluate. Default: {DEFAULT_BASELINE_FILE}",
+    )
+    args = parser.parse_args()
+    main(args.pred_file)
