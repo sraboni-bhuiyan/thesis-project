@@ -1,6 +1,10 @@
 import csv
 import json
 from pathlib import Path
+import argparse
+
+# Increase field size limit for large CSV fields
+csv.field_size_limit(1_000_000)
 
 from dotenv import load_dotenv
 import os
@@ -18,9 +22,20 @@ from config import MODEL_NAME, TEMPERATURE
 OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1"
 
 
-# Paths
+# ==== Argument parsing ====
+parser = argparse.ArgumentParser(
+    description="Run baseline LLM triage on a cases CSV."
+)
+parser.add_argument(
+    "--cases-file",
+    type=str,
+    default="data/cases/main.csv",
+    help="Path to the cases CSV to evaluate. Default: data/cases/main.csv",
+)
+args = parser.parse_args()
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CASES_FILE = PROJECT_ROOT / "data" / "cases" / "main.csv"
+CASES_FILE = PROJECT_ROOT / args.cases_file
 PROMPT_FILE = PROJECT_ROOT / "src" / "prompts" / "baseline.txt"
 RESULTS_DIR = PROJECT_ROOT / "results"
 RESULTS_FILE = RESULTS_DIR / "baseline_predictions.csv"

@@ -2,6 +2,9 @@ import argparse
 import csv
 from pathlib import Path
 
+# Increase field size limit for large CSV fields
+csv.field_size_limit(1_000_000)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CASES_FILE = PROJECT_ROOT / "data" / "cases" / "main.csv"
 # Default prediction file – can be overridden with --pred-file
