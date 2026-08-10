@@ -1,6 +1,7 @@
 import csv
 import json
 from pathlib import Path
+from tqdm import tqdm
 import argparse
 
 # Increase field size limit for large CSV fields
@@ -43,11 +44,11 @@ RESULTS_FILE = RESULTS_DIR / "baseline_predictions.csv"
 
 def load_api_key():
     load_dotenv()
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    api_key = os.getenv("NIM_API_KEY")
+    base_url = os.getenv("NIM_BASE_URL", "https://api.nim.nvidia.com/v1")
 
     if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY not set in .env")
+        raise RuntimeError("NIM_API_KEY not set in .env")
 
     if _has_new_openai:
         # New openai v1.0+ client
@@ -212,7 +213,7 @@ def run_baseline():
         writer = csv.DictWriter(f_out, fieldnames=fieldnames)
         writer.writeheader()
 
-        for case in cases:
+        for case in tqdm(cases, desc="Baseline", unit="case"):
             case_id = case.get("case_id")
             try:
                 prompt = build_case_prompt(template, case)

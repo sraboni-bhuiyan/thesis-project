@@ -1,7 +1,7 @@
 from pathlib import Path
 import os
 
-MODEL_NAME = "openai/gpt-4o-mini"
+MODEL_NAME = "nvidia/nemotron-3-ultra-550b-a55b"
 TEMPERATURE = 0.0
 
 # Chunking / retrieval params
