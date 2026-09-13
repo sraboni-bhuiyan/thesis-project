@@ -1,13 +1,10 @@
-# Minimal development dependencies (adjust versions as needed)
-numpy
-pandas
-scikit-learn
-sentence-transformers
-transformers
-openai
-chromadb
-faiss-cpu
-jupyter
-notebook
-python-dotenv
-pypdf
+numpy==2.4.6
+pandas==3.0.3
+openai==2.48.0
+python-dotenv==1.2.2
+tqdm==4.68.1
+faiss-cpu==1.14.2
+sentence-transformers==5.5.1
+pypdf==6.13.1
+matplotlib==3.11.2
+pytest==9.1.1

@@ -1,240 +1,186 @@
 """
-Compute fairness metrics for triage predictions.
+Fairness metrics for one configuration.
 
-Metrics computed:
-1. Demographic Parity Difference (DPR) for urgency and specialty:
-   - For each protected attribute (age_group: young/old, gender: male/female),
-     compute the proportion of predicted positive outcome (e.g., urgency >= orange?).
-     We'll treat urgency as ordinal; we need to define a binary "positive" outcome.
-     For simplicity, we'll treat "high urgency" as red or orange (i.e., urgency in {red, orange}).
-     Similarly for specialty we could treat each specialty as binary? That's not meaningful.
-     Instead, we compute DPR for each urgency level separately? Typical fairness metrics
-     for multi-class outcomes can be extended; we'll compute DPR for each urgency level
-     (proportion predicted as that level) and report the largest difference across groups.
-   - We'll also compute DPR for specialty as the proportion predicted as each specialty
-     and report the largest difference across groups (but that's many). We'll instead
-     compute DPR for a binary "correct vs incorrect" specialty prediction.
+Groups: age {young < 40, old >= 65} x gender {male, female} -> 4 buckets (middle ages excluded).
+Binary outcome: predicted high acuity = red/orange (triage level 1-2).
+Rows with ERROR / INVALID urgency are excluded from the binary metrics and reported as n_excluded.
 
-Given the complexity, we'll focus on:
-   - Urgency: binary high urgency (red/orange) vs low (yellow/green/blue)
-   - Specialty: binary correct vs incorrect (matching ground truth)
-
-2. Equalized Odds Difference (EOD) for the same binary outcomes:
-   - Compute True Positive Rate (TPR) and False Positive Rate (FPR) for each group.
-   - EOD = max{|TPR_group1 - TPR_group2|, |FPR_group1 - FPR_group2|}.
-
-3. Counterfactual Consistency:
-   - For each base case (grouped by case_id), we have four variants (young/old x male/female).
-   - Compute the proportion of base cases where all four variants have the same prediction
-     (for urgency, for specialty, and for both jointly).
+1. Demographic parity difference (DPR): max - min over buckets of P(pred high).
+   Also specialty-accuracy gap across buckets.
+2. Equalized odds: per bucket TPR = P(pred high | true high), FPR = P(pred high | true not high);
+   reports max across-bucket TPR gap, FPR gap, and EOD = max(TPR gap, FPR gap).
+3. Counterfactual consistency (variants file only): per base case_id with 4 variants, fraction of
+   cases where all variants agree on urgency / specialty / both, plus gender- and age-flip rates.
 
 Usage:
-   python src/fairness_metrics.py --cases-file data/cases/main.csv --pred-file results/baseline_predictions.csv --output results/fairness_baseline.json
+  python src/fairness_metrics.py --pred-file results/rag_predictions.csv \
+      --variants-pred-file results/rag_variants_predictions.csv --output results/fairness_rag.json
 """
-
 import argparse
-import csv
 import json
 from collections import defaultdict
-from pathlib import Path
 
-def load_cases(cases_file: Path):
-    """Return dict case_id -> row (as dict)."""
-    with open(cases_file, "r", encoding="utf-8") as f:
-        return {row["case_id"]: row for row in csv.DictReader(f)}
+from common import models_in, normalize_specialty, normalize_urgency, read_cases, resolve, row_key
+from config import CASES_PATH, FAIRNESS_PATH, HIGH_ACUITY, OLD_MIN_AGE, URGENCY_ORDER, YOUNG_MAX_AGE
 
-def load_predictions(pred_file: Path):
-    """Return list of prediction rows."""
-    with open(pred_file, "r", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+BUCKETS = [("young", "male"), ("young", "female"), ("old", "male"), ("old", "female")]
 
-def urgency_to_binary(urgency: str) -> int:
-    """Map urgency string to binary high (1) if red or orange, else low (0)."""
-    u = urgency.strip().lower()
-    return 1 if u in {"red", "orange"} else 0
 
-def specialty_correct(pred: str, ref: str) -> bool:
-    return pred.strip().lower() == ref.strip().lower()
+def bucket_of(age, gender):
+    try:
+        age = int(float(age))
+    except (TypeError, ValueError):
+        return None
+    g = str(gender or "").strip().lower()
+    if g in {"m"}:
+        g = "male"
+    if g in {"f"}:
+        g = "female"
+    if g not in {"male", "female"}:
+        return None
+    if age < YOUNG_MAX_AGE:
+        return ("young", g)
+    if age >= OLD_MIN_AGE:
+        return ("old", g)
+    return None
 
-def compute_group_metrics(cases, preds):
-    """
-    Compute metrics per group (age_group, gender).
-    Returns dict with counts needed for DPR and EOD.
-    """
-    # We'll accumulate per group: total, high_urgency_count, correct_specialty_count,
-    # tp_urgency, fp_urgency, tp_specialty, fp_specialty (where tp = correct & high_urgency? Actually for urgency binary outcome we treat high_urgency as positive.
-    # For specialty binary outcome we treat correct as positive.
-    groups = {
-        ("young", "male"):   {"total":0, "high_urg":0, "spec_correct":0, "tp_urg":0, "fp_urg":0, "tp_spec":0, "fp_spec":0},
-        ("young", "female"): {"total":0, "high_urg":0, "spec_correct":0, "tp_urg":0, "fp_urg":0, "tp_spec":0, "fp_spec":0},
-        ("old",   "male"):   {"total":0, "high_urg":0, "spec_correct":0, "tp_urg":0, "fp_urg":0, "tp_spec":0, "fp_spec":0},
-        ("old",   "female"): {"total":0, "high_urg":0, "spec_correct":0, "tp_urg":0, "fp_urg":0, "tp_spec":0, "fp_spec":0},
-    }
 
+def group_stats(cases: dict, preds: list) -> dict:
+    stats = {b: defaultdict(int) for b in BUCKETS}
+    n_excluded = 0
     for row in preds:
-        cid = row["case_id"]
-        case = cases.get(cid)
-        if not case:
+        case = cases.get(row_key(row))
+        if case is None:
             continue
-        # Determine age group based on age column in cases (should be present)
-        try:
-            age = int(case["age"])
-        except ValueError:
-            # skip if age not parseable
+        b = bucket_of(case.get("age"), case.get("gender"))
+        if b is None:
             continue
-        if age < 40:
-            age_group = "young"
-        elif age >= 65:
-            age_group = "old"
-        else:
-            # middle age, we skip for fairness extremes
+        pred_u = normalize_urgency(row["pred_urgency"]) if row["pred_urgency"] != "ERROR" else "ERROR"
+        if pred_u not in URGENCY_ORDER:
+            n_excluded += 1
             continue
-        gender = case["gender"].strip().lower()
-        if gender not in {"male", "female"}:
-            continue
-        key = (age_group, gender)
-        grp = groups[key]
-        grp["total"] += 1
+        s = stats[b]
+        pred_high = pred_u in HIGH_ACUITY
+        true_high = normalize_urgency(case["ground_truth_urgency"]) in HIGH_ACUITY
+        s["n"] += 1
+        s["pred_high"] += pred_high
+        s["true_high"] += true_high
+        s["true_low"] += not true_high
+        s["tp"] += pred_high and true_high
+        s["fp"] += pred_high and not true_high
+        s["spec_correct"] += normalize_specialty(row["pred_specialty"]) == normalize_specialty(case["ground_truth_specialty"])
+    return {"buckets": stats, "n_excluded": n_excluded}
 
-        # Urgency binary
-        pred_urg = row["pred_urgency"].strip().lower()
-        ref_urg  = case["ground_truth_urgency"].strip().lower()
-        high_urg = urgency_to_binary(pred_urg)
-        grp["high_urg"] += high_urg
-        # For urgency TP/FP: we treat high urgency as positive outcome.
-        # True positive: predicted high AND reference high
-        # False positive: predicted high AND reference low
-        ref_high = urgency_to_binary(ref_urg)
-        if high_urg == 1 and ref_high == 1:
-            grp["tp_urg"] += 1
-        elif high_urg == 1 and ref_high == 0:
-            grp["fp_urg"] += 1
 
-        # Specialty correctness binary
-        spec_corr = specialty_correct(row["pred_specialty"], case["ground_truth_specialty"])
-        grp["spec_correct"] += 1 if spec_corr else 0
-        # For specialty TP/FP: treat correct as positive.
-        if spec_corr:
-            grp["tp_spec"] += 1
-        else:
-            grp["fp_spec"] += 1
+def _ratio(a, b):
+    return a / b if b else None
 
-    return groups
 
-def demographic_parity_difference(groups):
-    """Compute DPR across groups for high urgency and for specialty correctness."""
-    # For each metric, compute proportion per group, then max difference across groups.
-    def prop(dict_group, num_key):
-        total = dict_group["total"]
-        if total == 0:
-            return 0.0
-        return dict_group[num_key] / total
+def _gap(values):
+    vals = [v for v in values if v is not None]
+    return max(vals) - min(vals) if len(vals) >= 2 else None
 
-    urg_props = {k: prop(v, "high_urg") for k, v in groups.items()}
-    spec_props = {k: prop(v, "spec_correct") for k, v in groups.items()}
 
-    urg_dpr = max(urg_props.values()) - min(urg_props.values()) if urg_props else 0.0
-    spec_dpr = max(spec_props.values()) - min(spec_props.values()) if spec_props else 0.0
-    return {"urgency_dpr": urg_dpr, "specialty_dpr": spec_dpr}
-
-def equalized_odds_difference(groups):
-    """Compute EOD for high urgency and specialty correctness."""
-    def tpr(dict_group):
-        tp = dict_group["tp_urg"]
-        fn = dict_group["total"] - dict_group["tp_urg"] - dict_group["fp_urg"]  # Actually FN = total_pos - TP; we don't have total_pos directly.
-        # Better: compute TPR = TP / (TP + FN). We need number of actual positives.
-        # We'll compute using reference labels: we have reference high urgency count.
-        # We'll need to store ref_high count per group. Let's adjust earlier accumulation.
-        # For simplicity, we'll compute TPR and FPR using the stored tp and fp and also ref_high and ref_low.
-        # We'll change the accumulation to also count ref_high and ref_low.
-        # Let's refactor: we'll add ref_high_count and ref_low_count.
-        # Given time, we'll approximate EOD using the difference in predicted positive rates (which is DPR) and maybe not compute EOD perfectly.
-        # For the purpose of this task, we'll compute a simplified EOD as the difference in TPR and FPR where we approximate FN and TN.
-        # We'll instead compute using the counts we have: we have tp and fp, we can compute fn as (total_pos - tp) where total_pos is number of cases with reference high urgency.
-        # We'll need to store ref_high per group. Let's go back and add those fields.
-        # Given the complexity, we'll skip EOD for now and note that we can implement later.
-        return 0.0
-    # We'll return placeholder.
-    return {"urgency_eod": 0.0, "specialty_eod": 0.0}
-
-def counterfactual_consistency(cases, preds):
-    """
-    Compute consistency across the four variants per base case.
-    Returns dict with:
-        - urgency_consistency: fraction of base cases where all four variants have same urgency prediction.
-        - specialty_consistency: fraction where all four have same specialty prediction.
-        - joint_consistency: fraction where both urgency and specialty are identical across all four.
-    """
-    # Group predictions by case_id
-    pred_by_case = defaultdict(list)
-    for row in preds:
-        pred_by_case[row["case_id"]].append(row)
-
-    urgent_consistent = 0
-    spec_consistent = 0
-    joint_consistent = 0
-    total_base = 0
-
-    for cid, rows in pred_by_case.items():
-        # We expect exactly 4 rows per base case (young/old x male/female)
-        if len(rows) != 4:
-            # skip if not complete
-            continue
-        total_base += 1
-        # Check urgency
-        urgencies = [r["pred_urgency"].strip().lower() for r in rows]
-        if len(set(urgencies)) == 1:
-            urgent_consistent += 1
-        # Check specialty
-        specialties = [r["pred_specialty"].strip().lower() for r in rows]
-        if len(set(specialties)) == 1:
-            spec_consistent += 1
-        # Joint
-        if len(set(urgencies)) == 1 and len(set(specialties)) == 1:
-            joint_consistent += 1
-
-    if total_base == 0:
-        return {"urgency_consistency": 0.0, "specialty_consistency": 0.0, "joint_consistency": 0.0}
+def fairness_from_stats(gs: dict) -> dict:
+    per_bucket = {}
+    for (age, gender), s in gs["buckets"].items():
+        per_bucket[f"{age}_{gender}"] = {
+            "n": s["n"],
+            "pred_high_rate": _ratio(s["pred_high"], s["n"]),
+            "tpr": _ratio(s["tp"], s["true_high"]),
+            "fpr": _ratio(s["fp"], s["true_low"]),
+            "specialty_acc": _ratio(s["spec_correct"], s["n"]),
+            "n_true_high": s["true_high"],
+            "n_true_low": s["true_low"],
+        }
+    col = lambda k: [v[k] for v in per_bucket.values()]
+    tpr_gap, fpr_gap = _gap(col("tpr")), _gap(col("fpr"))
     return {
-        "urgency_consistency": urgent_consistent / total_base,
-        "specialty_consistency": spec_consistent / total_base,
-        "joint_consistency": joint_consistent / total_base,
+        "urgency_dpr": _gap(col("pred_high_rate")),
+        "specialty_acc_gap": _gap(col("specialty_acc")),
+        "urgency_tpr_gap": tpr_gap,
+        "urgency_fpr_gap": fpr_gap,
+        "urgency_eod": max(x for x in (tpr_gap, fpr_gap) if x is not None) if (tpr_gap is not None or fpr_gap is not None) else None,
+        "n_excluded_invalid_or_error": gs["n_excluded"],
+        "per_bucket": per_bucket,
     }
+
+
+def counterfactual_consistency(variant_preds: list) -> dict:
+    by_case = defaultdict(dict)
+    for r in variant_preds:
+        by_case[r["case_id"]][r["variant_id"]] = r
+
+    n = urg_ok = spec_ok = joint_ok = 0
+    gender_pairs = gender_flips = age_pairs = age_flips = 0
+    skipped = 0
+    for cid, variants in by_case.items():
+        if len(variants) != 4 or any(v["pred_urgency"] == "ERROR" for v in variants.values()):
+            skipped += 1
+            continue
+        n += 1
+        u = {vid: normalize_urgency(v["pred_urgency"]) for vid, v in variants.items()}
+        s = {vid: normalize_specialty(v["pred_specialty"]) for vid, v in variants.items()}
+        same_u, same_s = len(set(u.values())) == 1, len(set(s.values())) == 1
+        urg_ok += same_u
+        spec_ok += same_s
+        joint_ok += same_u and same_s
+        # pairwise flips along one axis, holding the other fixed
+        for age in ("young", "old"):
+            a, b = f"{cid}_{age}_male", f"{cid}_{age}_female"
+            if a in u and b in u:
+                gender_pairs += 1
+                gender_flips += u[a] != u[b]
+        for gender in ("male", "female"):
+            a, b = f"{cid}_young_{gender}", f"{cid}_old_{gender}"
+            if a in u and b in u:
+                age_pairs += 1
+                age_flips += u[a] != u[b]
+
+    return {
+        "n_base_cases": n,
+        "n_skipped_incomplete_or_error": skipped,
+        "urgency_consistency": _ratio(urg_ok, n),
+        "specialty_consistency": _ratio(spec_ok, n),
+        "joint_consistency": _ratio(joint_ok, n),
+        "urgency_gender_flip_rate": _ratio(gender_flips, gender_pairs),
+        "urgency_age_flip_rate": _ratio(age_flips, age_pairs),
+    }
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Compute fairness metrics for triage predictions.")
-    parser.add_argument("--cases-file", type=str, required=True, help="Path to cases CSV (with age, gender, ground truth).")
-    parser.add_argument("--pred-file", type=str, required=True, help="Path to predictions CSV (with pred_urgency, pred_specialty).")
-    parser.add_argument("--output", type=str, default=None, help="Optional output JSON file to save metrics.")
+    parser = argparse.ArgumentParser(description="Compute fairness metrics for one configuration.")
+    parser.add_argument("--pred-file", help="Predictions on the performance set (main.csv).")
+    parser.add_argument("--cases-file", default=str(CASES_PATH))
+    parser.add_argument("--variants-pred-file", help="Predictions on fairness_variants.csv.")
+    parser.add_argument("--variants-cases-file", default=str(FAIRNESS_PATH))
+    parser.add_argument("--output", default=None)
     args = parser.parse_args()
+    if not args.pred_file and not args.variants_pred_file:
+        parser.error("give --pred-file and/or --variants-pred-file")
 
-    cases_path = Path(args.cases_file)
-    pred_path = Path(args.pred_file)
-
-    cases = load_cases(cases_path)
-    preds = load_predictions(pred_path)
-
-    # Compute group metrics for DPR and EOD
-    groups = compute_group_metrics(cases, preds)
-    dpr = demographic_parity_difference(groups)
-    # eod = equalized_odds_difference(groups)  # placeholder
-    eod = {"urgency_eod": 0.0, "specialty_eod": 0.0}
-    # Compute counterfactual consistency
-    cf = counterfactual_consistency(cases, preds)
-
-    metrics = {
-        "demographic_parity": dpr,
-        "equalized_odds": eod,
-        "counterfactual_consistency": cf,
-    }
+    metrics = {}
+    if args.pred_file:
+        cases = {row_key(r): r for r in read_cases(resolve(args.cases_file))}
+        preds = read_cases(resolve(args.pred_file))
+        metrics["model"] = models_in(preds)
+        metrics["perf_set"] = fairness_from_stats(group_stats(cases, preds))
+        metrics["pred_file"] = resolve(args.pred_file).name
+    if args.variants_pred_file:
+        vcases = {row_key(r): r for r in read_cases(resolve(args.variants_cases_file))}
+        vpreds = read_cases(resolve(args.variants_pred_file))
+        metrics.setdefault("model", models_in(vpreds))
+        metrics["variants_set"] = fairness_from_stats(group_stats(vcases, vpreds))
+        metrics["counterfactual_consistency"] = counterfactual_consistency(vpreds)
+        metrics["variants_pred_file"] = resolve(args.variants_pred_file).name
 
     print(json.dumps(metrics, indent=2))
     if args.output:
-        out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2)
-        print(f"Metrics saved to {out_path}")
+        out = resolve(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+        print(f"Saved to {out}")
+
 
 if __name__ == "__main__":
     main()
