@@ -1,25 +1,38 @@
 """
-C2 RAG and C3 RAG + demographic masking.
+C2 RAG, C3 RAG + demographic masking, and C4 fixed-context control.
+
+C4 (--fixed-context) is the control that separates "retrieval helped" from "having some
+guideline text in the prompt helped": same prompt template, same model settings, but the
+{retrieved_context} slot is filled with the SAME chunks every time (no embedding, no FAISS,
+no ranking). Those chunks come from data/guidelines_clean/fixed_context.json, derived from
+the retrieval logs by src/pick_fixed_context.py.
 
 Examples:
   python src/run_rag.py --limit 20
   python src/run_rag.py --mask-demographics --output results/rag_masked_predictions.csv --log-file results/retrieval_logs_masked.jsonl
   python src/run_rag.py --cases-file data/cases/fairness_variants.csv --output results/rag_variants_predictions.csv --log-file results/retrieval_logs_variants.jsonl
+  python src/run_rag.py --fixed-context --output results/rag_fixed_predictions.csv --log-file results/retrieval_logs_fixed.jsonl
 """
 import argparse
 import json
 
-import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from common import (build_case_block, call_model, load_client, load_prompt, read_cases, resolve,
                     row_key, run_predictions)
 from config import CORPUS_FILE, EMBEDDING_MODEL, FAISS_INDEX, ID_MAP_FILE, TOP_K
+from pick_fixed_context import FIXED_CONTEXT_FILE
+
+# How retrieved chunks are pasted into the {retrieved_context} slot of rag.txt.
+# C4 must use this exact separator so the only difference from C2 is which text is pasted.
+CHUNK_SEPARATOR = "\n\n---\n\n"
 
 
 def load_retriever():
     """Load FAISS index, chunk ids (index order), corpus texts and the embedding model."""
+    import faiss
+    from sentence_transformers import SentenceTransformer
+
     index = faiss.read_index(str(FAISS_INDEX))
     chunk_ids = json.loads(ID_MAP_FILE.read_text(encoding="utf-8"))
     id_to_text = {}
@@ -33,27 +46,46 @@ def load_retriever():
     return index, chunk_ids, texts, model
 
 
+def load_fixed_context():
+    """C4: the same chunk ids and texts for every case, in the order stored by pick_fixed_context.py."""
+    if not FIXED_CONTEXT_FILE.exists():
+        raise SystemExit(f"{FIXED_CONTEXT_FILE} not found; run: python src/pick_fixed_context.py")
+    payload = json.loads(FIXED_CONTEXT_FILE.read_text(encoding="utf-8"))
+    chunks = payload["chunks"]
+    if len(chunks) != payload["n_chunks"] or not chunks:
+        raise SystemExit(f"{FIXED_CONTEXT_FILE} is inconsistent; re-run src/pick_fixed_context.py")
+    return [c["chunk_id"] for c in chunks], [c["text"] for c in chunks], payload
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run RAG LLM triage on a cases CSV.")
     parser.add_argument("--cases-file", default="data/cases/main.csv")
-    parser.add_argument("--output", default=None, help="Default: results/rag_predictions.csv (or rag_masked_predictions.csv)")
-    parser.add_argument("--log-file", default=None, help="Default: results/retrieval_logs[_masked].jsonl")
+    parser.add_argument("--output", default=None, help="Default: results/rag[_masked][_fixed]_predictions.csv")
+    parser.add_argument("--log-file", default=None, help="Default: results/retrieval_logs[_masked][_fixed].jsonl")
     parser.add_argument("--mask-demographics", action="store_true",
                         help="C3: remove age/gender from the retrieval query and the generation prompt.")
+    parser.add_argument("--fixed-context", action="store_true",
+                        help="C4: paste the same guideline chunks into every prompt; no embedding, no FAISS search.")
     parser.add_argument("--top-k", type=int, default=TOP_K)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.0)
     args = parser.parse_args()
 
-    suffix = "_masked" if args.mask_demographics else ""
+    suffix = ("_masked" if args.mask_demographics else "") + ("_fixed" if args.fixed_context else "")
     output = resolve(args.output or f"results/rag{suffix}_predictions.csv")
     log_path = resolve(args.log_file or f"results/retrieval_logs{suffix}.jsonl")
 
     client = load_client()
     template = load_prompt("rag.txt")
     cases = read_cases(resolve(args.cases_file), args.limit)
-    index, chunk_ids, texts, embedder = load_retriever()
+    if args.fixed_context:
+        # C4: no index, no embedder - the context is the same for every case.
+        fixed_ids, fixed_texts, fixed_meta = load_fixed_context()
+        print(f"Fixed context: {len(fixed_ids)} chunk(s) from {FIXED_CONTEXT_FILE.name} "
+              f"(derived from {fixed_meta['n_queries']} logged queries): {', '.join(fixed_ids)}")
+    else:
+        index, chunk_ids, texts, embedder = load_retriever()
 
     # Keep log entries of already-finished rows when resuming
     existing = {}
@@ -69,17 +101,23 @@ def main():
 
     def predict(case):
         case_block = build_case_block(case, mask=args.mask_demographics)
-        query_vec = embedder.encode([case_block], normalize_embeddings=True).astype(np.float32)
-        scores, idx = index.search(query_vec, args.top_k)
-        retrieved = [texts[i] for i in idx[0]]
-        prompt = template.format(retrieved_context="\n\n---\n\n".join(retrieved), case_block=case_block)
+        if args.fixed_context:
+            ids, retrieved, scores_out = fixed_ids, fixed_texts, None
+        else:
+            query_vec = embedder.encode([case_block], normalize_embeddings=True).astype(np.float32)
+            scores, idx = index.search(query_vec, args.top_k)
+            ids = [chunk_ids[i] for i in idx[0]]
+            retrieved = [texts[i] for i in idx[0]]
+            scores_out = [float(s) for s in scores[0]]
+        prompt = template.format(retrieved_context=CHUNK_SEPARATOR.join(retrieved), case_block=case_block)
         entry = {
             "case_id": case.get("case_id"),
             "variant_id": case.get("variant_id", ""),
             "masked": args.mask_demographics,
+            "fixed_context": args.fixed_context,
             "query": case_block,
-            "retrieved_chunk_ids": [chunk_ids[i] for i in idx[0]],
-            "retrieved_scores": [float(s) for s in scores[0]],
+            "retrieved_chunk_ids": ids,
+            "retrieved_scores": scores_out,
             "retrieved_texts": retrieved,
         }
         if row_key(case) not in existing:
@@ -88,7 +126,10 @@ def main():
         return call_model(client, prompt)
 
     try:
-        run_predictions(cases, output, predict, desc="RAG-masked" if args.mask_demographics else "RAG",
+        desc = "RAG-fixed" if args.fixed_context else "RAG"
+        if args.mask_demographics:
+            desc += "-masked"
+        run_predictions(cases, output, predict, desc=desc,
                         resume=not args.no_resume, sleep=args.sleep)
     finally:
         f_log.close()

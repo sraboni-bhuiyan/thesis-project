@@ -4,7 +4,8 @@ Aggregate all configurations into results/results_summary.csv and figures.
 Expects (missing files are skipped):
   results/{cfg}_predictions.csv            on data/cases/main.csv
   results/{cfg}_variants_predictions.csv   on data/cases/fairness_variants.csv
-for cfg in baseline, rag, rag_masked.
+for cfg in baseline, rag, rag_masked, rag_fixed.
+A config may have one file without the other; missing metrics are left blank.
 
 Writes per-config results/eval_{cfg}.json and results/fairness_{cfg}.json, plus
   results/results_summary.csv
@@ -25,7 +26,8 @@ from config import CASES_PATH, FAIRNESS_PATH, RESULTS_PATH, TEMPERATURE, TOP_K
 from evaluate import evaluate
 from fairness_metrics import counterfactual_consistency, fairness_from_stats, group_stats
 
-CONFIGS = [("baseline", "C1 Baseline"), ("rag", "C2 RAG"), ("rag_masked", "C3 RAG + masking")]
+CONFIGS = [("baseline", "C1 Baseline"), ("rag", "C2 RAG"), ("rag_masked", "C3 RAG + masking"),
+           ("rag_fixed", "C4 Fixed context")]
 FIG_DIR = RESULTS_PATH / "figures"
 
 SUMMARY_FIELDS = [
