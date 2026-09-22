@@ -8,6 +8,7 @@ __pycache__/
 results/
 data/indexes/
 data/
+docs/
 THESIS_PROJECT_PLAN.md
 mimic-iv-ext-clinical-decision-support-for-referral-triage-and-diagnosis-1.0.2
 baseline.log
