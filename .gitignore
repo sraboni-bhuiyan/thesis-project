@@ -6,7 +6,6 @@ __pycache__/
 .ipynb_checkpoints/
 
 results/
-data/indexes/
 data/
 docs/
 THESIS_PROJECT_PLAN.md
