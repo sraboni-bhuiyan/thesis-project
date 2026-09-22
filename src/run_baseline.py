@@ -1,9 +1,8 @@
 """
-C1 Baseline: prompt-only LLM triage.
+C1 Baseline: prompt-only LLM triage, no retrieval.
 
-Examples:
-  python src/run_baseline.py --limit 20
-  python src/run_baseline.py --cases-file data/cases/fairness_variants.csv --output results/baseline_variants_predictions.csv
+Usage:
+  python src/run_baseline.py [--cases-file F] [--output F] [--limit N]
 """
 import argparse
 

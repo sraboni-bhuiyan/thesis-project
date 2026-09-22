@@ -1,11 +1,12 @@
 """
-Generate the counterfactual fairness set from the frozen evaluation set.
+Generate the counterfactual fairness set from data/cases/main.csv.
 
-For each of N base cases (default 70) four variants are created:
-    (young, male), (young, female), (old, male), (old, female)
-The age/gender fields are set, and gender/age cues inside the HPI text
-(Mr./Ms., he/she, man/woman, 'M'/'F', 'NN y/o') are rewritten to match,
-so the only difference between variants is the demographic.
+Each base case becomes four variants - (young|old) x (male|female). Age/gender fields are set
+and the HPI text is rewritten to match (titles, pronouns, 'M'/'F', 'NN y/o'), so demographics
+are the only difference. Ground truth is copied unchanged across all four.
+
+Usage:
+  python src/build_fairness_variants.py [--num-base 70]
 """
 import argparse
 import csv

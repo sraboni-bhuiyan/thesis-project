@@ -1,12 +1,12 @@
 """
 Performance metrics for one prediction file.
 
-Urgency:   exact accuracy, +-1 adjacent accuracy, over-/under-triage rate, INVALID and ERROR counts.
-Specialty: accuracy vs. clinician-approved label (first listed), and "any listed" accuracy,
-           after normalization + synonym map.
+Urgency: exact and +-1 adjacent accuracy, over-/under-triage rate, INVALID and ERROR counts.
+Specialty: accuracy vs. the first clinician-approved label and vs. any listed, after
+normalization.
 
 Usage:
-  python src/evaluate.py --pred-file results/rag_predictions.csv --output results/eval_rag.json
+  python src/evaluate.py -p results/rag_predictions.csv --output results/eval_rag.json
 """
 import argparse
 import csv

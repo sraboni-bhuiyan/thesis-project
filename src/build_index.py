@@ -1,5 +1,11 @@
 """
-Build a FAISS index over the guideline corpus for retrieval in the RAG pipeline.
+Build the FAISS index over the guideline corpus.
+
+Re-run after every corpus rebuild: a stale index paired with a new corpus gives wrong
+retrievals silently, not an error.
+
+Usage:
+  python src/build_index.py
 """
 import json
 import faiss
@@ -7,14 +13,13 @@ import numpy as np
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
-# Paths
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CORPUS_FILE = PROJECT_ROOT / "data" / "guidelines_clean" / "corpus.jsonl"
 INDEX_DIR = PROJECT_ROOT / "data" / "indexes"
 INDEX_FILE = INDEX_DIR / "guidelines.index"
 ID_MAP_FILE = INDEX_DIR / "id_map.json"  # mapping from index position to chunk_id
 
-# Embedding model (same as used elsewhere for consistency)
+# Must match config.EMBEDDING_MODEL: query and document encoders have to be the same model.
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 def load_corpus():
@@ -47,17 +52,15 @@ def build_index():
     )
     print(f"Embeddings shape: {embeddings.shape}")
 
-    # Build FAISS index (inner product)
     d = embeddings.shape[1]
     index = faiss.IndexFlatIP(d)  # inner product
     index.add(embeddings.astype(np.float32))
     print(f"FAISS index built with {index.ntotal} vectors.")
 
-    # Save index
     faiss.write_index(index, str(INDEX_FILE))
     print(f"Saved index to {INDEX_FILE}")
 
-    # Save ID map (parallel list)
+    # index position -> chunk_id
     with open(ID_MAP_FILE, "w", encoding="utf-8") as f:
         json.dump(list(chunk_ids), f, ensure_ascii=False, indent=2)
     print(f"Saved ID map to {ID_MAP_FILE}")

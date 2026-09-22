@@ -1,16 +1,12 @@
 """
-Pick the fixed guideline context for C4 (fixed-context control) from the retrieval logs.
+Pick C4's fixed guideline context: the chunks retrieved most often in the C2/C3 logs.
 
-C4 pastes the SAME guideline text into every prompt. To keep that choice defensible, the
-text is DERIVED from the C2/C3 retrieval logs: the chunks retrieved most often overall.
-N_FIXED = TOP_K so that C4's prompt length matches C2's and context length is not a confound.
-
-Repeat runs (`*_rep2.jsonl`) are a second pass over an already-counted case set, so they are
-excluded by default to avoid double-weighting those queries; use --include-repeats to count them.
+Derived from the logs rather than hand-picked, so the choice is defensible. n = TOP_K keeps
+C4's prompt length equal to C2's. Repeat runs (*_rep2) are excluded by default to avoid
+double-counting the same queries.
 
 Usage:
   python src/pick_fixed_context.py
-  python src/pick_fixed_context.py --include-repeats --output data/guidelines_clean/fixed_context.json
 """
 import argparse
 import json

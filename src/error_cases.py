@@ -1,11 +1,8 @@
 """
-Candidate cases for the qualitative error analysis (thesis 4.5).
+Candidate cases for the qualitative error analysis -> results/error_cases.csv.
 
-Writes results/error_cases.csv with two kinds of rows:
-  - rag_flip:        perf-set cases where RAG urgency differs from baseline (or is INVALID),
-                     with the retrieved chunk ids and both rationales.
-  - demographic_flip: variant base cases where urgency differs across the 4 demographic variants
-                     (for the chosen config), showing each variant's urgency and rationale.
+Two row types: rag_flip (RAG urgency differs from baseline, with retrieved chunk ids and both
+rationales) and demographic_flip (urgency differs across a case's 4 demographic variants).
 Pick 5-10 illustrative rows by hand.
 
 Usage:

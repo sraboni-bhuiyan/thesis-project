@@ -1,8 +1,8 @@
 """
-Run-to-run noise check: compare two prediction files produced with the same config on the same cases.
+Run-to-run noise floor: agreement between two runs of the same config on the same cases.
 
-Temperature 0 through an API is not fully deterministic, so part of any "inconsistency" across
-demographic variants is plain noise. This script measures that noise floor.
+Temperature 0 through an API is not deterministic, so some "inconsistency" across demographic
+variants is plain noise. Fairness claims are read against this floor.
 
 Usage:
   python src/repeat_agreement.py --a results/rag_variants_predictions.csv --b results/rag_variants_predictions_rep2.csv

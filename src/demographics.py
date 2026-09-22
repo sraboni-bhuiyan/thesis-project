@@ -1,11 +1,11 @@
 """
 Demographic text transforms on MIMIC HPI text.
 
-- swap_demographics(): rewrite gender/age cues for counterfactual variants.
-- mask_demographics(): neutralize gender/age cues for C3 (RAG + masking).
+swap_demographics() rewrites gender/age cues for counterfactual variants;
+mask_demographics() neutralizes them for C3.
 
-MIMIC de-identifies ages as '___', so explicit ages are rare; the main cues are
-titles (Mr./Ms.), pronouns, sex words (man/woman), and 'M'/'F' shorthand.
+MIMIC de-identifies ages as '___', so the cues that matter are titles, pronouns, sex words
+and 'M'/'F' shorthand.
 """
 import re
 
@@ -16,8 +16,8 @@ _GENDER_PAIRS = [
     ("man", "woman"), ("men", "women"), ("male", "female"), ("males", "females"),
     ("gentleman", "lady"), ("boy", "girl"),
 ]
-# Relationship words (husband, mother, ...) describe other people and are left unchanged.
-# 'her' is ambiguous (him/his); map to 'his' before a noun-ish word, else 'him'
+# Relationship words (husband, mother, ...) describe other people: left unchanged on purpose.
+# 'her' is ambiguous; -> 'his' before a noun, else 'him'.
 _TO_FEMALE = {m: f for m, f in _GENDER_PAIRS if (m, f) not in {("mr", "mrs"), ("mr", "miss")}}
 _TO_MALE = {f: m for m, f in _GENDER_PAIRS if f != "her"}
 
@@ -32,8 +32,8 @@ _NEUTRAL = {
 }
 
 _WORD = re.compile(r"\b([A-Za-z]+)\b(\.?)")
-# e.g. "___ M", "___ y/o F", "65 yo man", "65-year-old", "65M", "w/"
-# (a bare number before M/F is NOT matched, to avoid temperatures like "101 F")
+# Matches "___ M", "___ y/o F", "65 yo M". An age token is required: a bare number before M/F
+# is NOT matched, or vitals like "101 F" would be read as a female patient.
 _SEX_LETTER = re.compile(r"((?:___\s*(?:y/?o|yo|yr old|year[- ]old)?|\b\d{1,3}\s*(?:y/?o|yo|yr old|year[- ]old))\s*)\b([MF])\b")
 _AGE_PHRASE = re.compile(r"\b\d{1,3}\s*(?:-| )?\s*(?:y/?o|yo|yrs?(?:\s*old)?|years?(?:[- ]old)?)\b", re.IGNORECASE)
 _AGE_SEX_COMPACT = re.compile(r"\b(\d{1,3})([MF])\b")
@@ -48,7 +48,7 @@ def _match_case(src: str, repl: str) -> str:
 
 
 def _her_is_possessive(text: str, m) -> bool:
-    """'her pain' -> possessive; 'wake her.' / 'gave her to' -> object."""
+    """'her pain' -> possessive ('his'); 'wake her.' / 'gave her to' -> object ('him')."""
     if m.group(2) or text[m.end():m.end() + 1] not in (" ", ""):
         return False
     nxt = text[m.end():m.end() + 20].lstrip()

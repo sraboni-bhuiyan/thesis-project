@@ -1,17 +1,12 @@
 """
-Aggregate all configurations into results/results_summary.csv and figures.
+Aggregate every config into results/results_summary.csv, eval_*.json, fairness_*.json and
+the three figures.
 
-Expects (missing files are skipped):
-  results/{cfg}_predictions.csv            on data/cases/main.csv
-  results/{cfg}_variants_predictions.csv   on data/cases/fairness_variants.csv
-for cfg in baseline, rag, rag_masked, rag_fixed.
-A config may have one file without the other; missing metrics are left blank.
+Reads results/{cfg}_predictions.csv and results/{cfg}_variants_predictions.csv for cfg in
+baseline, rag, rag_masked, rag_fixed. Missing files are skipped and their metrics left blank.
 
-Writes per-config results/eval_{cfg}.json and results/fairness_{cfg}.json, plus
-  results/results_summary.csv
-  results/figures/fig1_performance.png
-  results/figures/fig2_dpr_heatmap.png
-  results/figures/fig3_consistency.png
+Usage:
+  python src/make_summary.py
 """
 import csv
 import json

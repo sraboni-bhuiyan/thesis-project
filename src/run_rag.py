@@ -1,17 +1,12 @@
 """
-C2 RAG, C3 RAG + demographic masking, and C4 fixed-context control.
+C2 RAG, C3 RAG + demographic masking, C4 fixed-context control.
 
-C4 (--fixed-context) is the control that separates "retrieval helped" from "having some
-guideline text in the prompt helped": same prompt template, same model settings, but the
-{retrieved_context} slot is filled with the SAME chunks every time (no embedding, no FAISS,
-no ranking). Those chunks come from data/guidelines_clean/fixed_context.json, derived from
-the retrieval logs by src/pick_fixed_context.py.
+C4 (--fixed-context) separates "retrieval helped" from "guideline text helped": same prompt and
+settings, but {retrieved_context} holds the same chunks every time, from fixed_context.json
+(derived by pick_fixed_context.py). No embedding, no FAISS, no ranking.
 
-Examples:
-  python src/run_rag.py --limit 20
-  python src/run_rag.py --mask-demographics --output results/rag_masked_predictions.csv --log-file results/retrieval_logs_masked.jsonl
-  python src/run_rag.py --cases-file data/cases/fairness_variants.csv --output results/rag_variants_predictions.csv --log-file results/retrieval_logs_variants.jsonl
-  python src/run_rag.py --fixed-context --output results/rag_fixed_predictions.csv --log-file results/retrieval_logs_fixed.jsonl
+Usage:
+  python src/run_rag.py [--mask-demographics | --fixed-context] [--cases-file F] [--output F] [--log-file F]
 """
 import argparse
 import json

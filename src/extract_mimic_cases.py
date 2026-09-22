@@ -1,8 +1,11 @@
 """
 Build the frozen evaluation set (data/cases/main.csv) from MIMIC-IV-Ext CDS.
 
-Rows    = clinician-approved specialty referrals (331 stays).
-Urgency = triage acuity (1-5) joined from triage_level.csv on stay_id, mapped to colours.
+Rows are clinician-approved specialty referrals; urgency is triage acuity 1-5 joined on
+stay_id and mapped to colours. Output is sorted by case_id, so rebuilds are byte-identical.
+
+Usage:
+  python src/extract_mimic_cases.py [--max-cases N]
 """
 import argparse
 import ast

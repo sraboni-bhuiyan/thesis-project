@@ -24,11 +24,7 @@ SYSTEM_PROMPT = "You are a careful clinical triage assistant. You always answer 
 # API client
 # ============================================================
 def load_client() -> OpenAI:
-    """
-    Build an OpenAI-compatible client from .env.
-    Key:  OPENROUTER_API_KEY | OPENAI_API_KEY | NIM_API_KEY
-    Base: OPENROUTER_BASE_URL | NIM_BASE_URL | OPENAI_BASE_URL
-    """
+    """OpenAI-compatible client from .env: OPENROUTER_/OPENAI_/NIM_ API_KEY and BASE_URL."""
     load_dotenv(ROOT / ".env")
     api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("NIM_API_KEY")
     base_url = os.getenv("OPENROUTER_BASE_URL") or os.getenv("NIM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
@@ -233,9 +229,9 @@ def load_done_keys(output: Path):
 
 
 def run_predictions(cases, output: Path, predict_fn, desc: str, resume: bool = True, sleep: float = 0.0):
-    """
-    predict_fn(case) -> (model_text, extra) ; writes one CSV row per case.
-    With resume=True, successful rows already in `output` are kept and skipped.
+    """Run predict_fn(case) -> model text over `cases`, writing one CSV row each.
+
+    resume=True keeps rows already done and retries only ERROR rows.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     done, kept = load_done_keys(output) if resume else (set(), [])

@@ -1,20 +1,12 @@
 """
-Fairness metrics for one configuration.
+Fairness metrics: demographic parity (DPR), equalized odds (EOD), counterfactual consistency.
 
-Groups: age {young < 40, old >= 65} x gender {male, female} -> 4 buckets (middle ages excluded).
-Binary outcome: predicted high acuity = red/orange (triage level 1-2).
-Rows with ERROR / INVALID urgency are excluded from the binary metrics and reported as n_excluded.
-
-1. Demographic parity difference (DPR): max - min over buckets of P(pred high).
-   Also specialty-accuracy gap across buckets.
-2. Equalized odds: per bucket TPR = P(pred high | true high), FPR = P(pred high | true not high);
-   reports max across-bucket TPR gap, FPR gap, and EOD = max(TPR gap, FPR gap).
-3. Counterfactual consistency (variants file only): per base case_id with 4 variants, fraction of
-   cases where all variants agree on urgency / specialty / both, plus gender- and age-flip rates.
+Buckets: age {young <40, old >=65} x gender {male, female}; middle ages excluded.
+Binary outcome: predicted high acuity = red/orange. ERROR/INVALID rows are dropped and counted
+as n_excluded.
 
 Usage:
-  python src/fairness_metrics.py --pred-file results/rag_predictions.csv \
-      --variants-pred-file results/rag_variants_predictions.csv --output results/fairness_rag.json
+  python src/fairness_metrics.py --pred-file results/rag_predictions.csv --variants-pred-file results/rag_variants_predictions.csv
 """
 import argparse
 import json

@@ -1,14 +1,11 @@
 """
 Paired exact McNemar test between two configs on the same cases.
 
-Method (the one used for the comparisons in results/RESULTS_NOTES.md):
-two-sided exact binomial test on the discordant pairs, P(success) = 0.5.
-Only cases present in BOTH prediction files and in the ground truth are used;
-ERROR rows are dropped pairwise. INVALID counts as wrong, as in evaluate.py.
+Two-sided exact binomial test on the discordant pairs, P = 0.5. Only cases in both prediction
+files and in the ground truth count; ERROR rows are dropped pairwise, INVALID counts as wrong.
 
 Usage:
-  python src/mcnemar.py -a results/baseline_predictions.csv -b results/rag_predictions.csv
-  python src/mcnemar.py -a results/rag_predictions.csv -b results/rag_fixed_predictions.csv --metric urgency
+  python src/mcnemar.py -a results/baseline_predictions.csv -b results/rag_predictions.csv --metric urgency
 """
 import argparse
 import json

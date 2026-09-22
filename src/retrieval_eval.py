@@ -1,15 +1,11 @@
 """
-Small retrieval evaluation (proposal 6.3).
+Retrieval quality from manual relevance ratings: P@k, MRR, nDCG@k.
 
-Step 1 - create a rating sheet from a retrieval log:
-  python src/retrieval_eval.py sample --log-file results/retrieval_logs.jsonl --n 25
-  -> results/retrieval_rating_sheet.csv  (fill the `relevant` column with 1 / 0)
+  sample  -> results/retrieval_rating_sheet.csv; fill `relevant` with 1/0 by hand
+  score   -> prints the metrics, writes results/retrieval_eval.json
 
-Step 2 - score the filled sheet:
-  python src/retrieval_eval.py score
-  -> prints P@k, MRR, nDCG@k and writes results/retrieval_eval.json
-
-Note: the guideline corpus has only ~14 chunks, so these numbers are coarse; report as a limitation.
+Fix the relevance rule in writing before rating; the numbers are meaningless without it.
+Unrated rows are skipped silently, so fill every row.
 """
 import argparse
 import csv
